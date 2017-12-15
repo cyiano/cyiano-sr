@@ -11,4 +11,7 @@ def compute_psnr(im1, im2):
         err = np.mean((im1 - im2) ** 2, axis=(1, 2))
         err = -10 * np.mean(np.log10(err))
 
+    # err = np.mean((im1 - im2) ** 2)
+    # err = -10 * np.log10(err)
+
     return err

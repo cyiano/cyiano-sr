@@ -42,16 +42,13 @@ def preproccessing(img):
     lr_hei = int(hei/FLAGS.scale)
     lr_wid = int(wid/FLAGS.scale)
     
-    # lr= cv2.resize(hr, (lr_wid, lr_hei), interpolation=cv2.INTER_CUBIC)
-    lr = [cv2.resize(hr, (lr_wid, lr_hei), interpolation=cv2.INTER_CUBIC),
-        cv2.resize(hr, (lr_wid, lr_hei), interpolation=cv2.INTER_LINEAR),
-        cv2.resize(hr, (lr_wid, lr_hei), interpolation=cv2.INTER_NEAREST),
-        cv2.resize(hr, (lr_wid, lr_hei), interpolation=cv2.INTER_AREA)][random.randint(0, 3)]
+    lr= cv2.resize(hr, (lr_wid, lr_hei), interpolation=cv2.INTER_CUBIC)
 
     hr = np.expand_dims(hr, 0)
     lr= np.expand_dims(lr, 0)
 
     return hr, lr
+
 
 def export_img(img_name, img_list):
     img_concat = np.concatenate(img_list, axis=1)
@@ -62,30 +59,27 @@ def validate():
 
     PSNR_SR = []
     PSNR_BICUBIC = []
-    # FLAGS.testdir = 'new data/1'
-    filelist = os.listdir(FLAGS.testdir) 
+    filelist = os.listdir(FLAGS.testdir)
 
-    # In fact variable lr and hr have no use in this module.
     lr = np.random.random((1, 16, 16, 3)).astype('float32')
-    hr = np.random.random((1, 16, 16, 3)).astype('float32')
-    model = SR_model([lr, hr], [lr, hr], scale=FLAGS.scale, num_blocks=FLAGS.num_blocks, drop_rate=1.0, is_training=False)
-    model.sess.run(tf.group(
+    hr = SR_model(lr, FLAGS.scale, FLAGS.num_blocks, is_training=False)
+
+    sess = tf.Session()
+    sess.run(tf.group(
         tf.local_variables_initializer(),
         tf.global_variables_initializer()
     ))
-    model.restore('checkpoint/sr_model')
+
+    sr_restorer = tf.train.Saver()
+    sr_restorer.restore(sess, 'checkpoint/sr_model.ckpt')
 
     for i in range(len(filelist)):
         sys.stdout.write('\r>> Inferencing the {}/{} th images......'.format(i+1, len(filelist)))
         sys.stdout.flush()
         hr = cv2.imread(FLAGS.testdir + '/'+filelist[i])
-        # hr = hr[50:98, 50:98, :]
         hr, lr = preproccessing(hr)
-        (_, hei, wid, _) = hr.shape
-
-        sr = model.predict(lr, need_restore=False)
-
-        sr_bic = cv2.resize(lr[0], (wid, hei), interpolation=cv2.INTER_CUBIC)
+        sr = sess.run(SR_model(lr, FLAGS.scale, FLAGS.num_blocks, is_training=False))
+        sr_bic = cv2.resize(lr[0], (0,0), fx=FLAGS.scale, fy=FLAGS.scale, interpolation=cv2.INTER_CUBIC)
         export_img('result/{}.jpg'.format(i), [sr_bic, sr[0], hr[0]])
 
         PSNR_SR.append(compute_psnr(sr[0], hr[0]))
