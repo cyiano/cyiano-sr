@@ -30,6 +30,7 @@ def _tfrecords_reader(tfrecords_filename):
         features={
             'hr': tf.FixedLenFeature([], tf.string),
             'lr': tf.FixedLenFeature([], tf.string),
+            'hr_bic': tf.FixedLenFeature([], tf.string),
             'img_id': tf.FixedLenFeature([], tf.int64),
     })
 
@@ -39,10 +40,12 @@ def _tfrecords_reader(tfrecords_filename):
     hr = _preprocess_for_image(hr, FLAGS.HR_size, FLAGS.HR_size, 3)
     lr = tf.decode_raw(features['lr'], tf.uint8)
     lr = _preprocess_for_image(lr, LR_size, LR_size, 3)
+    hr_bic = tf.decode_raw(features['hr_bic'], tf.uint8)
+    hr_bic = _preprocess_for_image(hr_bic, FLAGS.HR_size, FLAGS.HR_size, 3)
 
     img_id = tf.cast(features['img_id'], tf.int32)
 
-    return hr, lr, img_id
+    return hr, lr, hr_bic, img_id
   
 def get_dataset_batches(dataset_dir, split_name, batch_size=None, file_pattern=None):
 
@@ -52,11 +55,11 @@ def get_dataset_batches(dataset_dir, split_name, batch_size=None, file_pattern=N
         file_pattern = 'datasets_' + split_name + '*.tfrecord'
     tfrecords = glob.glob(dataset_dir + '/' + file_pattern)
 
-    hr_sets, lr_sets, id_sets = _tfrecords_reader(tfrecords)
-    hr, lr, img_id = tf.train.shuffle_batch([hr_sets, lr_sets, id_sets], 
+    hr_sets, lr_sets, hr_bic_sets, id_sets = _tfrecords_reader(tfrecords)
+    hr, lr, hr_bic, img_id = tf.train.shuffle_batch([hr_sets, lr_sets, hr_bic_sets, id_sets], 
                                             batch_size=batch_size,
                                             num_threads=2,
                                             capacity=20000,
                                             min_after_dequeue=1000)
 
-    return hr, lr, img_id
+    return hr, lr, hr_bic, img_id

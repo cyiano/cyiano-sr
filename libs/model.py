@@ -3,11 +3,9 @@ from __future__ import division
 from __future__ import print_function
 
 import pdb
+import math
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-from libs import config_tf
-
-FLAGS = tf.app.flags.FLAGS
 
 def lrelu(x, trainbable=None):
     alpha = 0.2
@@ -59,27 +57,26 @@ def residual_arg_scope( is_training=False,
         padding='SAME',
         weights_regularizer=None, #slim.l2_regularizer(weight_decay),
         weights_initializer=slim.xavier_initializer(),
-        activation_fn=None,
+        activation_fn=tf.nn.relu,
         normalizer_fn=normalizer_fn,
         reuse=reuse):
         with slim.arg_scope([slim.batch_norm], **batch_norm_params) as arg_sc:
             return arg_sc
 
-def SR_model(x, scale, num_blocks, is_training=True, reuse=tf.AUTO_REUSE):
+def SR_model(x, x_bic, scale, num_blocks, is_training=True, reuse=tf.AUTO_REUSE):
 
     # with slim.arg_scope([slim.conv2d],
     #                     trainable=is_training,
     #                     reuse=reuse):
     #     (_, hei, wid, _) = x.get_shape().as_list()
-    #     skip = tf.image.resize_bicubic(x, (hei*FLAGS.scale, wid*FLAGS.scale))
     #     x = slim.repeat(x, 6, slim.conv2d, 64, [3, 3], scope='conv0')
     #     x = slim.conv2d(x, 32, [3, 3], activation_fn=tf.nn.tanh, scope='conv1')
     #     x = slim.conv2d(x, 12, [3, 3], activation_fn=tf.nn.tanh, scope='conv2')
     #     x = pixel_shuffle_layer(x, 2, 3)
     #     x = slim.conv2d(x, 12, [3, 3], activation_fn=tf.nn.tanh, scope='conv3')
     #     x = pixel_shuffle_layer(x, 2, 3)
-    #     return x + skip
-    
+    #     return x
+
     x = tf.convert_to_tensor(x)
 
     if x.get_shape().ndims == 3:
@@ -90,49 +87,45 @@ def SR_model(x, scale, num_blocks, is_training=True, reuse=tf.AUTO_REUSE):
         raise 'Dimension of the x not correct!'
     
     (_, hei, wid, _) = x.get_shape().as_list()
-    # start = tf.image.resize_bicubic(x, (hei*FLAGS.scale, wid*FLAGS.scale), align_corners=True)
-    start = tf.image.resize_images(x, (hei*FLAGS.scale, wid*FLAGS.scale), method=2)
+
     with slim.arg_scope([slim.conv2d],
-                        activation_fn=None,
+                        kernel_size=[3, 3],
+                        activation_fn=tf.nn.relu,
                         reuse=reuse):
         with tf.variable_scope('Residual'):
             # innitial conv layer to extract feature map
-            x = slim.conv2d(x, 64, [3, 3], activation_fn=tf.nn.relu, scope='conv0')
+            x = slim.conv2d(x, 64, scope='conv0')
             # skip = x
 
             # build residual block, you can choose whether to use batch normalization
             with slim.arg_scope(residual_arg_scope(is_training=is_training, need_bn=False, reuse=reuse)):
                 for i in range(num_blocks):
+                    f_channel = 64 + math.floor((64 * i) / num_blocks + 0.5)
                     mid = x
-                    x = slim.conv2d(x, 64, [3, 3], scope='block{}_conv1'.format(i+1))
-                    x = tf.nn.relu(x)
-                    x = slim.conv2d(x, 64, [3, 3], scope='block{}_conv2'.format(i+1))
-                    x *= 0.1
-                    x = tf.add(mid, x)
+                    x = slim.conv2d(x, f_channel, scope='block{}_conv1'.format(i+1))
+                    x = slim.conv2d(x, f_channel, scope='block{}_conv2'.format(i+1))
+                    # x *= 0.1
+                    x = tf.add(x, slim.conv2d(mid, f_channel, kernel_size=[1, 1], activation_fn=None, scope='block{}_skipconv'.format(i+1)))
 
-            x = slim.conv2d(x, 64, [3, 3], scope='conv1')
+            x = slim.conv2d(x, 64, scope='conv1')
             # x = tf.add(skip, x)
 
         with tf.variable_scope('Subpixel'):
             # pixel shuffle layers
             if scale == 2:
-                x = slim.conv2d(x, 12, [3, 3], scope='ps2')
-                x = tf.nn.tanh(x)
+                x = slim.conv2d(x, 12, activation_fn=tf.nn.tanh, scope='ps2')
                 x = pixel_shuffle_layer(x, 2, 3)
 
             if scale == 3:
-                x = slim.conv2d(x, 27, [3, 3], scope='ps3')
-                x = tf.nn.tanh(x)
+                x = slim.conv2d(x, 27, activation_fn=tf.nn.tanh, scope='ps3')
                 x = pixel_shuffle_layer(x, 3, 3)
 
             if scale == 4:
-                x = slim.conv2d(x, 12, [3, 3], scope='ps4_1')
-                x = tf.nn.tanh(x)
+                x = slim.conv2d(x, 12, activation_fn=tf.nn.tanh, scope='ps4_1')
                 x = pixel_shuffle_layer(x, 2, 3)
 
-                x = slim.conv2d(x, 12, [3, 3], scope='ps4_2')
-                x = tf.nn.tanh(x)
+                x = slim.conv2d(x, 12, activation_fn=tf.nn.tanh, scope='ps4_2')
                 x = pixel_shuffle_layer(x, 2, 3)
 
-    x = tf.add(x, start)
+    x = tf.add(x, x_bic)
     return x

@@ -43,11 +43,13 @@ def preproccessing(img):
     lr_wid = int(wid/FLAGS.scale)
     
     lr= cv2.resize(hr, (lr_wid, lr_hei), interpolation=cv2.INTER_CUBIC)
+    hr_bic = cv2.resize(lr, (wid, hei), interpolation=cv2.INTER_CUBIC)
 
     hr = np.expand_dims(hr, 0)
     lr= np.expand_dims(lr, 0)
+    hr_bic = np.expand_dims(hr_bic, 0)
 
-    return hr, lr
+    return hr, hr_bic, lr
 
 
 def export_img(img_name, img_list):
@@ -62,7 +64,8 @@ def validate():
     filelist = os.listdir(FLAGS.testdir)
 
     lr = np.random.random((1, 16, 16, 3)).astype('float32')
-    hr = SR_model(lr, FLAGS.scale, FLAGS.num_blocks, is_training=False)
+    ll = np.random.random((1, 64, 64, 3)).astype('float32')
+    hr = SR_model(lr, ll, FLAGS.scale, FLAGS.num_blocks, is_training=False)
 
     sess = tf.Session()
     sess.run(tf.group(
@@ -77,13 +80,13 @@ def validate():
         sys.stdout.write('\r>> Inferencing the {}/{} th images......'.format(i+1, len(filelist)))
         sys.stdout.flush()
         hr = cv2.imread(FLAGS.testdir + '/'+filelist[i])
-        hr, lr = preproccessing(hr)
-        sr = sess.run(SR_model(lr, FLAGS.scale, FLAGS.num_blocks, is_training=False))
-        sr_bic = cv2.resize(lr[0], (0,0), fx=FLAGS.scale, fy=FLAGS.scale, interpolation=cv2.INTER_CUBIC)
-        export_img('result/{}.jpg'.format(i), [sr_bic, sr[0], hr[0]])
+        hr, hr_bic, lr = preproccessing(hr)
+        sr = sess.run(SR_model(lr, hr_bic, FLAGS.scale, FLAGS.num_blocks, is_training=False))
+        # sr_bic = cv2.resize(lr[0], (0,0), fx=FLAGS.scale, fy=FLAGS.scale, interpolation=cv2.INTER_CUBIC)
+        export_img('result/{}.jpg'.format(i), [hr_bic[0], sr[0], hr[0]])
 
         PSNR_SR.append(compute_psnr(sr[0], hr[0]))
-        PSNR_BICUBIC.append(compute_psnr(sr_bic, hr[0]))
+        PSNR_BICUBIC.append(compute_psnr(hr_bic[0], hr[0]))
 
     sys.stdout.write('\n')
     sys.stdout.flush()

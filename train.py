@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import pdb
 import numpy as np
 from time import strftime, gmtime
 
@@ -62,10 +63,10 @@ def get_loss(predictions, labels, weights):
 def train(train_conf):
 
     lr_rate = tf.placeholder(dtype=tf.float32, shape=[], name='lr_rate')
-    hr, lr, img_id = get_dataset_batches('Images', 'train', FLAGS.batch_size)
-    hr_val, lr_val, img_id_val = get_dataset_batches('Images', 'val', FLAGS.batch_size)
+    hr, lr, hr_bic, img_id = get_dataset_batches('Images', 'train', FLAGS.batch_size)
+    hr_val, lr_val, hr_bic_val, img_id_val = get_dataset_batches('Images', 'val', FLAGS.batch_size)
 
-    sr = SR_model(lr, FLAGS.scale, FLAGS.num_blocks, is_training=True)
+    sr = SR_model(lr, hr_bic, FLAGS.scale, FLAGS.num_blocks, is_training=True)
 
     loss = get_loss(sr, hr, weights=100)
     psnr = get_psnr(sr, hr)
@@ -76,8 +77,8 @@ def train(train_conf):
     if FLAGS.use_perceptual_loss is True:
         vars_vgg = [v for v in vars_all if 'vgg_19' in v.name]
 
-    # for var in vars_all:
-    #     print(var)
+    for var in vars_all:
+        print(var)
 
     '''
     Set the global step, and learning methods.
@@ -114,7 +115,6 @@ def train(train_conf):
     Restore the model.
     '''
     sr_restorer = tf.train.Saver()
-    # sr_restorer = tf.train.Saver(var_list = vars_all)
     if FLAGS.ckpt is True:
         sr_restorer.restore(sess, 'checkpoint/sr_model.ckpt')
     if FLAGS.use_perceptual_loss is True:
@@ -136,7 +136,6 @@ def train(train_conf):
                         feed_dict={lr_rate: train_conf['lr_rate'][cnt]})  
             summary_writer.add_summary(summary_str, step)
             metric_list.append([loss_np, psnr_np])
-
             # Print the average MSE and PSNR.
             if step % 100 == 0:
                 metric_list = np.asarray(metric_list)
@@ -147,10 +146,10 @@ def train(train_conf):
 
             # Save the model.
             if step % 1000 == 0:
-                sr_val = SR_model(lr_val, FLAGS.scale, FLAGS.num_blocks, is_training=False)
-                sr_bic = tf.image.resize_bicubic(lr_val, [FLAGS.HR_size, FLAGS.HR_size])
+                sr_val = SR_model(lr_val, hr_bic_val, FLAGS.scale, FLAGS.num_blocks, is_training=False)
+                # sr_bic = tf.image.resize_bicubic(lr_val, [FLAGS.HR_size, FLAGS.HR_size])
                 psnr_val = get_psnr(sr_val, hr_val)
-                psnr_bic = get_psnr(sr_bic, hr_val)
+                psnr_bic = get_psnr(hr_bic_val, hr_val)
                 loss1, loss2 = sess.run([psnr_val, psnr_bic])
                 print('Validation ----- PSNR: {0:.8f}, PSNR using bicubic: {1:.8f}\n'.format(loss1, loss2))
 
@@ -167,7 +166,7 @@ def train(train_conf):
 
 if __name__ == '__main__':
     train_conf = {
-        'epoch': [2000, 2000, 2000],
-        'lr_rate': [1e-3, 1e-4, 1e-5],
+        'epoch': [10000, 10000, 10000],
+        'lr_rate': [1e-3, 2*1e-4, 1e-4],
     }
     train(train_conf)

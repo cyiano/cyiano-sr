@@ -32,7 +32,7 @@ tf.app.flags.DEFINE_integer(
     'The number of samples in each batch.')
 
 tf.app.flags.DEFINE_integer(
-    'num_blocks', 8, 'Train image size.')
+    'num_blocks', 4, 'Train image size.')
 
 tf.app.flags.DEFINE_bool(
     'use_perceptual_loss', False,

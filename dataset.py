@@ -48,10 +48,11 @@ def _get_dataset_filename(dataset_dir, split_name, shard_id):
   output_filename = 'datasets_%s_%05d-of-%05d.tfrecord' % (split_name, shard_id+1, FLAGS.num_shards)
   return os.path.join(dataset_dir, output_filename)
 
-def _to_tfexample(hr, lr, img_id):
+def _to_tfexample(hr, lr, hr_bic, img_id):
   return tf.train.Example(features=tf.train.Features(feature={
     'hr': tf.train.Feature(bytes_list=tf.train.BytesList(value=[hr.tobytes()])),
     'lr': tf.train.Feature(bytes_list=tf.train.BytesList(value=[lr.tobytes()])),
+    'hr_bic': tf.train.Feature(bytes_list=tf.train.BytesList(value=[hr_bic.tobytes()])),
     'img_id': tf.train.Feature(int64_list=tf.train.Int64List(value=[img_id])),
     }))
 
@@ -116,15 +117,15 @@ class tfrecord_data(object):
 
                 sub_hr = hr_img[x_begin:x_end, y_begin:y_end, :]
                 
-                sub_lr = [cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_CUBIC),
-                          cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_LINEAR),
-                          cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_NEAREST),
-                          cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_AREA)][random.randint(0, 3)]
-                sub_lr = random_blur(sub_lr)
-                # cv2.imwrite('lr{}.jpg'.format(self.cnt), sub_lr)
-                # cv2.imwrite('hr{}.jpg'.format(self.cnt), sub_hr)
+                # sub_lr = [cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_CUBIC),
+                #           cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_LINEAR),
+                #           cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_NEAREST),
+                #           cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_AREA)][random.randint(0, 3)]
+                # sub_lr = random_blur(sub_lr)
+                sub_lr = cv2.resize(sub_hr, (self.LR_size, self.LR_size), interpolation=cv2.INTER_CUBIC)
+                sub_hr_bic = cv2.resize(sub_lr, (self.HR_size, self.HR_size), interpolation=cv2.INTER_CUBIC)
 
-                example = _to_tfexample(sub_hr, sub_lr, self.cnt)
+                example = _to_tfexample(sub_hr, sub_lr, sub_hr_bic, self.cnt)
 
                 tfrecord_writer.write(example.SerializeToString())
                 self.cnt += 1
