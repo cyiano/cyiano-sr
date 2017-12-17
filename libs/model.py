@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import pdb
 import math
+from libs.utils import bicubic_interpolation_2d
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
@@ -63,7 +64,7 @@ def residual_arg_scope( is_training=False,
         with slim.arg_scope([slim.batch_norm], **batch_norm_params) as arg_sc:
             return arg_sc
 
-def SR_model(x, x_bic, scale, num_blocks, is_training=True, reuse=tf.AUTO_REUSE):
+def SR_model(x, scale, num_blocks, is_training=True, reuse=tf.AUTO_REUSE):
 
     # with slim.arg_scope([slim.conv2d],
     #                     trainable=is_training,
@@ -81,11 +82,7 @@ def SR_model(x, x_bic, scale, num_blocks, is_training=True, reuse=tf.AUTO_REUSE)
 
     if x.get_shape().ndims == 3:
         x = tf.expand_dims(x, 0)
-    elif x.get_shape().ndims == 4:
-        x = x
-    else:
-        raise 'Dimension of the x not correct!'
-    
+
     (_, hei, wid, _) = x.get_shape().as_list()
 
     with slim.arg_scope([slim.conv2d],
@@ -93,6 +90,8 @@ def SR_model(x, x_bic, scale, num_blocks, is_training=True, reuse=tf.AUTO_REUSE)
                         activation_fn=tf.nn.relu,
                         reuse=reuse):
         with tf.variable_scope('Residual'):
+            #x_bic = bicubic_interpolation_2d(x, (hei*scale, wid*scale), endpoint=True)
+            x_bic = tf.image.resize_bicubic(x, (hei*scale, wid*scale))
             # innitial conv layer to extract feature map
             x = slim.conv2d(x, 64, scope='conv0')
             # skip = x

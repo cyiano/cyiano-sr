@@ -1,7 +1,12 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import os
 import sys
 import cv2
 import pdb
+import math
 import numpy as np
 import random
 
@@ -9,63 +14,53 @@ from libs.utils import *
 from libs import config_tf
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-from tensorflow.python.ops import control_flow_ops
 from libs.model import SR_model
 
 FLAGS = tf.app.flags.FLAGS
 
-def modcrop(imgs, modulo):
-    if np.size(imgs.shape) == 4:
-        (_, sheight, swidth, _) = imgs.shape
-        sheight = sheight - np.mod(sheight, modulo)
-        swidth = swidth - np.mod(swidth, modulo)
-        imgs = imgs[:, 0:sheight, 0:swidth, :]
-    elif np.size(imgs.shape) == 3:
-        (sheight, swidth, _) = imgs.shape
-        sheight = sheight - np.mod(sheight, modulo)
-        swidth = swidth - np.mod(swidth, modulo)
-        imgs = imgs[0:sheight, 0:swidth, :]
-    else:
-        (sheight, swidth) = imgs.shape
-        sheight = sheight - np.mod(sheight, modulo)
-        swidth = swidth - np.mod(swidth, modulo)
-        imgs = imgs[0:sheight, 0:swidth]
-    return imgs
+def image_preprocessing(img):
 
-def preproccessing(img):
+    (height, width, channel) = img.shape
+    img = tf.expand_dims(tf.convert_to_tensor(img), axis=0)
 
-    # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    hr_hei = FLAGS.scale * math.floor(height / FLAGS.scale)
+    hr_wid = FLAGS.scale * math.floor(width / FLAGS.scale)
+    lr_hei, lr_wid = int(hr_hei/FLAGS.scale), int(hr_wid/FLAGS.scale)
 
-    hr = modcrop(img, FLAGS.scale).astype('float32') / 255
+    hr = tf.image.resize_image_with_crop_or_pad(img, hr_hei, hr_wid)
 
-    (hei, wid, _) = hr.shape
-    lr_hei = int(hei/FLAGS.scale)
-    lr_wid = int(wid/FLAGS.scale)
-    
-    lr= cv2.resize(hr, (lr_wid, lr_hei), interpolation=cv2.INTER_CUBIC)
-    hr_bic = cv2.resize(lr, (wid, hei), interpolation=cv2.INTER_CUBIC)
+    lr = tf.image.resize_bicubic(hr, (lr_hei, lr_wid))
+    hr_bic = tf.image.resize_bicubic(lr, (hr_hei, hr_wid))
 
-    hr = np.expand_dims(hr, 0)
-    lr= np.expand_dims(lr, 0)
-    hr_bic = np.expand_dims(hr_bic, 0)
+    hr = tf.cast(hr, tf.float32) / 255.
+    hr_bic = tf.cast(hr_bic, tf.float32) / 255.
+    lr = tf.cast(lr, tf.float32) / 255.
 
     return hr, hr_bic, lr
 
+def image_preprocessing_without_downsampling(img):
 
-def export_img(img_name, img_list):
+    (height, width, channel) = img.shape
+    lr = tf.expand_dims(tf.convert_to_tensor(img), axis=0)
+    hr_bic = tf.image.resize_bicubic(lr, (height*FLAGS.scale, width*FLAGS.scale))
+
+    hr_bic = tf.cast(hr_bic, tf.float32) / 255.
+    lr = tf.cast(lr, tf.float32) / 255.
+
+    return lr, hr_bic
+
+def export_img_series(img_name, img_list):
     img_concat = np.concatenate(img_list, axis=1)
-    # img_concat = cv2.cvtColor(img_concat*255, cv2.COLOR_BGR2RGB)
-    cv2.imwrite(img_name, img_concat*255)
+    img_concat = cv2.cvtColor(img_concat, cv2.COLOR_BGR2RGB)
+    cv2.imwrite(img_name, img_concat)
 
-def validate():
+def validate(mode):
 
-    PSNR_SR = []
-    PSNR_BICUBIC = []
-    filelist = os.listdir(FLAGS.testdir)
+    PSNR_SR, PSNR_BICUBIC = [], []
+    filelist = [FLAGS.testdir + '/'+ name for name in os.listdir(FLAGS.testdir)]
 
-    lr = np.random.random((1, 16, 16, 3)).astype('float32')
-    ll = np.random.random((1, 64, 64, 3)).astype('float32')
-    hr = SR_model(lr, ll, FLAGS.scale, FLAGS.num_blocks, is_training=False)
+    fake = np.random.random((1, 1, 1, 3)).astype('float32')
+    fake_s = SR_model(fake, FLAGS.scale, FLAGS.num_blocks, is_training=False)
 
     sess = tf.Session()
     sess.run(tf.group(
@@ -76,23 +71,48 @@ def validate():
     sr_restorer = tf.train.Saver()
     sr_restorer.restore(sess, 'checkpoint/sr_model.ckpt')
 
-    for i in range(len(filelist)):
-        sys.stdout.write('\r>> Inferencing the {}/{} th images......'.format(i+1, len(filelist)))
+    if mode == 0:
+        for i in range(len(filelist)):
+
+            sys.stdout.write('\r>> Inferencing the {}/{} th images......'.format(i+1, len(filelist)))
+            sys.stdout.flush()
+
+            image_np = cv2.cvtColor(cv2.imread(filelist[i]), cv2.COLOR_BGR2RGB)
+            hr_tf, hr_bic_tf, lr_tf = image_preprocessing(image_np)
+            sr_tf = SR_model(lr_tf, FLAGS.scale, FLAGS.num_blocks, is_training=False)
+            lr, sr, hr_bic, hr = sess.run([lr_tf, sr_tf, hr_bic_tf, hr_tf])
+
+            sr = (sr*255).astype('uint8')
+            hr_bic = (hr_bic*255).astype('uint8')
+            hr = (hr*255).astype('uint8')
+
+            export_img_series('result/{}.jpg'.format(i), [hr_bic[0], sr[0], hr[0]])
+            PSNR_SR.append(compute_psnr(sr[0], hr[0], 8))
+            PSNR_BICUBIC.append(compute_psnr(hr_bic[0], hr[0], 8))
+
+        sys.stdout.write('\n')
         sys.stdout.flush()
-        hr = cv2.imread(FLAGS.testdir + '/'+filelist[i])
-        hr, hr_bic, lr = preproccessing(hr)
-        sr = sess.run(SR_model(lr, hr_bic, FLAGS.scale, FLAGS.num_blocks, is_training=False))
-        # sr_bic = cv2.resize(lr[0], (0,0), fx=FLAGS.scale, fy=FLAGS.scale, interpolation=cv2.INTER_CUBIC)
-        export_img('result/{}.jpg'.format(i), [hr_bic[0], sr[0], hr[0]])
 
-        PSNR_SR.append(compute_psnr(sr[0], hr[0]))
-        PSNR_BICUBIC.append(compute_psnr(hr_bic[0], hr[0]))
+        print(np.mean(PSNR_SR))
+        print(np.mean(PSNR_BICUBIC))
 
-    sys.stdout.write('\n')
-    sys.stdout.flush()
+    else:
+        for i in range(len(filelist)):
 
-    print(np.mean(PSNR_SR))
-    print(np.mean(PSNR_BICUBIC))
+            sys.stdout.write('\r>> Inferencing the {}/{} th images......'.format(i+1, len(filelist)))
+            sys.stdout.flush()
+
+            image_np = cv2.cvtColor(cv2.imread(filelist[i]), cv2.COLOR_BGR2RGB)
+            lr_tf, hr_bic_tf = image_preprocessing(image_np)
+            sr_tf = SR_model(lr_tf, FLAGS.scale, FLAGS.num_blocks, is_training=False)
+            lr, sr, hr_bic = sess.run([lr_tf, sr_tf, hr_bic_tf])
+
+            sr = (sr*255).astype('uint8')
+            hr_bic = (hr_bic*255).astype('uint8')
+            export_img_series('result/{}.jpg'.format(i), [hr_bic[0], sr[0]])
+
+            sys.stdout.write('\n')
+            sys.stdout.flush()
 
 if __name__ == '__main__':
-    validate()
+    validate(mode=0)
